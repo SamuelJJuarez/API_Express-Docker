@@ -1,0 +1,35 @@
+# Dependencias de Node.js
+api/node_modules/
+node_modules/
+
+# Archivos de configuración sensibles
+api/.env
+.env
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+# No ignorar docker-compose.yml ni Dockerfiles
+
+# Base de datos
+init-db/dvdrental.tar
+init-db/dvdrental.zip
+
+# Archivos temporales
+*.tmp
+*.temp
