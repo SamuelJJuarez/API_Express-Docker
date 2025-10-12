@@ -355,9 +355,113 @@ const getCustomerRentals = async (req, res) => {
   }
 };
 
+// Obtener todas las rentas
+const getAllRentals = async (req, res) => {
+  try {
+    const { 
+      status, // 'active', 'returned', 'all'
+      staff_id,
+      customer_id,
+      limit = 50, 
+      offset = 0 
+    } = req.query;
+
+    let query = `
+      SELECT 
+        r.rental_id,
+        r.rental_date,
+        r.return_date,
+        f.film_id,
+        f.title,
+        f.rental_rate,
+        c.customer_id,
+        c.first_name || ' ' || c.last_name as customer_name,
+        c.email as customer_email,
+        s.staff_id,
+        s.first_name || ' ' || s.last_name as staff_name,
+        CASE 
+          WHEN r.return_date IS NULL THEN 'Activa'
+          ELSE 'Devuelta'
+        END as status,
+        CASE 
+          WHEN r.return_date IS NULL 
+          THEN EXTRACT(DAY FROM (NOW() - r.rental_date))
+          ELSE EXTRACT(DAY FROM (r.return_date - r.rental_date))
+        END as days_rented,
+        p.payment_id,
+        p.amount as payment_amount
+      FROM rental r
+      JOIN inventory i ON r.inventory_id = i.inventory_id
+      JOIN film f ON i.film_id = f.film_id
+      JOIN customer c ON r.customer_id = c.customer_id
+      JOIN staff s ON r.staff_id = s.staff_id
+      LEFT JOIN payment p ON r.rental_id = p.rental_id
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    if (status === 'active') {
+      conditions.push('r.return_date IS NULL');
+    } else if (status === 'returned') {
+      conditions.push('r.return_date IS NOT NULL');
+    }
+
+    if (staff_id) {
+      conditions.push(`r.staff_id = $${params.length + 1}`);
+      params.push(staff_id);
+    }
+
+    if (customer_id) {
+      conditions.push(`r.customer_id = $${params.length + 1}`);
+      params.push(customer_id);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += `
+      ORDER BY r.rental_date DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    // Obtener el total de rentas
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM rental r
+      ${conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''}
+    `;
+    
+    const countResult = await pool.query(countQuery, params.slice(0, -2));
+
+    res.json({
+      success: true,
+      total: parseInt(countResult.rows[0].total),
+      count: result.rows.length,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      data: result.rows
+    });
+
+  } catch (error) {
+    console.error('Error al obtener rentas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener las rentas',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createRental,
   returnRental,
   cancelRental,
-  getCustomerRentals
+  getCustomerRentals,
+  getAllRentals
 };
