@@ -1,9 +1,9 @@
-# Ignora los módulos de Node.js
 node_modules
 npm-debug.log
-
-# Archivos de entorno
 .env
 .git
 .gitignore
 README.md
+*.test.js
+*.spec.js
+coverage
