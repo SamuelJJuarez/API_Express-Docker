@@ -3,6 +3,8 @@ const cors = require('cors');
 require('dotenv').config();
 
 const filmRoutes = require('./routes/filmRoutes');
+const rentalRoutes = require('./routes/rentalRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,17 +18,34 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/', (req, res) => {
   res.json({
     message: '🎬 Bienvenido a la API de DVD Rental',
+    version: '1.0.0',
     endpoints: {
-      films: '/api/films',
-      filmById: '/api/films/:id',
-      searchFilms: '/api/films/search?title=palabra',
-      filmsByCategory: '/api/films/category/:category'
+      films: {
+        getAll: 'GET /films',
+        getById: 'GET /films/:id',
+        search: 'GET /films/search?title=palabra',
+        byCategory: 'GET /films/category/:category'
+      },
+      rentals: {
+        create: 'POST /rentals',
+        return: 'PUT /rentals/:rental_id/return',
+        cancel: 'DELETE /rentals/:rental_id',
+        customerRentals: 'GET /rentals/customer/:customer_id'
+      },
+      reports: {
+        unreturnedDVDs: 'GET /reports/unreturned-dvds',
+        mostRented: 'GET /reports/most-rented?limit=10',
+        staffRevenue: 'GET /reports/staff-revenue',
+        staffRevenueById: 'GET /reports/staff-revenue/:staff_id'
+      }
     }
   });
 });
 
 // Rutas
-app.use('/api/films', filmRoutes);
+app.use('/films', filmRoutes);
+app.use('/rentals', rentalRoutes);
+app.use('/reports', reportRoutes);
 
 // Manejo de rutas no encontradas
 app.use((req, res) => {
@@ -36,7 +55,17 @@ app.use((req, res) => {
   });
 });
 
+// Manejo de errores
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Error interno del servidor',
+    error: err.message
+  });
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });

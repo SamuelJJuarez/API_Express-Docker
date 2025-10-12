@@ -18,25 +18,25 @@ const connectWithRetry = async (maxRetries = 5, delay = 5000) => {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const client = await pool.connect();
-      console.log('✅ Conectado a la base de datos PostgreSQL');
+      console.log('Conectado a la base de datos PostgreSQL');
       client.release();
       return;
     } catch (err) {
-      console.log(`❌ Intento ${i + 1}/${maxRetries} - Error al conectar a la base de datos:`, err.message);
+      console.log(`Intento ${i + 1}/${maxRetries} - Error al conectar a la base de datos:`, err.message);
       if (i < maxRetries - 1) {
         console.log(`⏳ Reintentando en ${delay/1000} segundos...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   }
-  console.error('❌ No se pudo conectar a la base de datos después de varios intentos');
+  console.error('No se pudo conectar a la base de datos después de varios intentos');
 };
 
 // Intentar conectar al iniciar
 connectWithRetry();
 
 pool.on('error', (err) => {
-  console.error('❌ Error inesperado en el pool de conexiones:', err);
+  console.error('Error inesperado en el pool de conexiones:', err);
 });
 
 module.exports = pool;
