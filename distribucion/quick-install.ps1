@@ -92,7 +92,7 @@ if (!(Test-Path "docker-compose.yml")) {
     Write-Host "📥 Descargando configuración..." -ForegroundColor Yellow
     
     try {
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/samueljjuarezb/dvdrental-api/main/distribution/docker-compose.yml" -OutFile "docker-compose.yml"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/SamuelJJuarez/API_Express-Docker/main/distribucion/docker-compose.yml" -OutFile "docker-compose.yml"
         Write-Host "✅ Configuración descargada" -ForegroundColor Green
     } catch {
         Write-Host "❌ Error al descargar configuración" -ForegroundColor Red
@@ -220,6 +220,6 @@ if ($apiReady) {
 
 Write-Host ""
 Write-Host "📖 Para más información, visita:" -ForegroundColor Cyan
-Write-Host "   https://github.com/samueljjuarezb/dvdrental-api" -ForegroundColor White
+Write-Host "   https://github.com/SamuelJJuarez/API_Express-Docker" -ForegroundColor White
 Write-Host ""
 Read-Host "Presiona Enter para salir"
