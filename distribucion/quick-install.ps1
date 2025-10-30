@@ -190,10 +190,10 @@ if ($apiReady) {
     Write-Host "   PostgreSQL: localhost:5432" -ForegroundColor White
     Write-Host ""
     Write-Host "📚 Endpoints disponibles:" -ForegroundColor Cyan
-    Write-Host "   GET  http://localhost:3000/api/films" -ForegroundColor White
-    Write-Host "   GET  http://localhost:3000/api/customers" -ForegroundColor White
-    Write-Host "   GET  http://localhost:3000/api/rentals" -ForegroundColor White
-    Write-Host "   GET  http://localhost:3000/api/reports/most-rented" -ForegroundColor White
+    Write-Host "   GET  http://localhost:3000/films" -ForegroundColor White
+    Write-Host "   GET  http://localhost:3000/customers" -ForegroundColor White
+    Write-Host "   GET  http://localhost:3000/rentals" -ForegroundColor White
+    Write-Host "   GET  http://localhost:3000/reports/most-rented" -ForegroundColor White
     Write-Host ""
     Write-Host "🔧 Comandos útiles:" -ForegroundColor Cyan
     Write-Host "   Ver logs:     docker-compose logs -f" -ForegroundColor White
