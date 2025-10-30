@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL con DVD Rental precargada
+  postgres:
+    image: samueljjuarezb/postgres-dvdrental:latest
+    container_name: dvdrental-db
+    restart: unless-stopped
+    environment:
+      # Puedes cambiar estas credenciales
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-dvdrental}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Los datos persisten aquí
+      - dvdrental_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - dvdrental-network
+
+  # API REST de Express.js
+  api:
+    image: samueljjuarezb/dvdapi-express-sjr:latest
+    container_name: dvdrental-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-dvdrental}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dvdrental-network
+
+volumes:
+  dvdrental_postgres_data:
+    name: dvdrental_postgres_data
+
+networks:
+  dvdrental-network:
+    name: dvdrental_network
+    driver: bridge
