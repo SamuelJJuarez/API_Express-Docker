@@ -1,29 +1,61 @@
 const pool = require('../config/database');
 
-// Crear una nueva renta
+// Crear una nueva renta (con film_id o inventory_id)
 const createRental = async (req, res) => {
   const client = await pool.connect();
   
   try {
-    const { customer_id, inventory_id, staff_id } = req.body;
+    const { customer_id, film_id, inventory_id, staff_id } = req.body;
     
     // Validar datos requeridos
-    if (!customer_id || !inventory_id || !staff_id) {
+    if (!customer_id || !staff_id) {
       return res.status(400).json({
         success: false,
-        message: 'customer_id, inventory_id y staff_id son requeridos'
+        message: 'customer_id y staff_id son requeridos'
+      });
+    }
+
+    // Validar que se proporcione film_id O inventory_id
+    if (!film_id && !inventory_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debes proporcionar film_id o inventory_id'
       });
     }
 
     await client.query('BEGIN');
 
-    // Verificar que el inventario existe y está disponible
+    let selectedInventoryId = inventory_id;
+
+    // Si se proporcionó film_id, buscar un inventory_id disponible
+    if (film_id && !inventory_id) {
+      const availableInventory = await client.query(
+        `SELECT i.inventory_id
+         FROM inventory i
+         LEFT JOIN rental r ON i.inventory_id = r.inventory_id AND r.return_date IS NULL
+         WHERE i.film_id = $1 AND r.rental_id IS NULL
+         LIMIT 1`,
+        [film_id]
+      );
+
+      if (availableInventory.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({
+          success: false,
+          message: 'No hay copias disponibles de esta película para rentar'
+        });
+      }
+
+      selectedInventoryId = availableInventory.rows[0].inventory_id;
+    }
+
+    // Verificar que el inventario existe y obtener información
     const inventoryCheck = await client.query(
-      `SELECT i.inventory_id, f.title, f.rental_rate
+      `SELECT i.inventory_id, f.film_id, f.title, f.rental_rate, f.rental_duration
        FROM inventory i
        JOIN film f ON i.film_id = f.film_id
        WHERE i.inventory_id = $1`,
-      [inventory_id]
+      [selectedInventoryId]
     );
 
     if (inventoryCheck.rows.length === 0) {
@@ -37,7 +69,7 @@ const createRental = async (req, res) => {
     // Verificar si el DVD ya está rentado (no devuelto)
     const rentalCheck = await client.query(
       'SELECT rental_id FROM rental WHERE inventory_id = $1 AND return_date IS NULL',
-      [inventory_id]
+      [selectedInventoryId]
     );
 
     if (rentalCheck.rows.length > 0) {
@@ -50,7 +82,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el cliente existe
     const customerCheck = await client.query(
-      'SELECT customer_id FROM customer WHERE customer_id = $1',
+      'SELECT customer_id, first_name, last_name FROM customer WHERE customer_id = $1',
       [customer_id]
     );
 
@@ -64,7 +96,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el staff existe
     const staffCheck = await client.query(
-      'SELECT staff_id FROM staff WHERE staff_id = $1',
+      'SELECT staff_id, first_name, last_name FROM staff WHERE staff_id = $1',
       [staff_id]
     );
 
@@ -81,10 +113,13 @@ const createRental = async (req, res) => {
       `INSERT INTO rental (rental_date, inventory_id, customer_id, staff_id, last_update)
        VALUES (NOW(), $1, $2, $3, NOW())
        RETURNING rental_id, rental_date`,
-      [inventory_id, customer_id, staff_id]
+      [selectedInventoryId, customer_id, staff_id]
     );
 
     const rental = rentalResult.rows[0];
+    const filmInfo = inventoryCheck.rows[0];
+    const customerInfo = customerCheck.rows[0];
+    const staffInfo = staffCheck.rows[0];
 
     await client.query('COMMIT');
 
@@ -94,11 +129,19 @@ const createRental = async (req, res) => {
       data: {
         rental_id: rental.rental_id,
         rental_date: rental.rental_date,
-        film_title: inventoryCheck.rows[0].title,
-        rental_rate: inventoryCheck.rows[0].rental_rate,
-        customer_id,
-        inventory_id,
-        staff_id
+        film_id: filmInfo.film_id,
+        film_title: filmInfo.title,
+        rental_rate: filmInfo.rental_rate,
+        rental_duration: filmInfo.rental_duration,
+        inventory_id: selectedInventoryId,
+        customer: {
+          customer_id: customerInfo.customer_id,
+          name: `${customerInfo.first_name} ${customerInfo.last_name}`
+        },
+        staff: {
+          staff_id: staffInfo.staff_id,
+          name: `${staffInfo.first_name} ${staffInfo.last_name}`
+        }
       }
     });
 
