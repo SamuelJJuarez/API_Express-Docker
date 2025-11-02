@@ -33,3 +33,6 @@ init-db/dvdrental.zip
 # Archivos temporales
 *.tmp
 *.temp
+
+# Entorno virtual de Python
+rental-dvd-frontend/venv/
