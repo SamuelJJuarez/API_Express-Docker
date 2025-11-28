@@ -13,6 +13,11 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
+// Configurar zona horaria para cada conexión
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'America/Mexico_City'");
+});
+
 // Función para conectar con reintentos
 const connectWithRetry = async (maxRetries = 5, delay = 5000) => {
   for (let i = 0; i < maxRetries; i++) {
@@ -24,7 +29,7 @@ const connectWithRetry = async (maxRetries = 5, delay = 5000) => {
     } catch (err) {
       console.log(`Intento ${i + 1}/${maxRetries} - Error al conectar a la base de datos:`, err.message);
       if (i < maxRetries - 1) {
-        console.log(`⏳ Reintentando en ${delay/1000} segundos...`);
+        console.log(`Reintentando en ${delay/1000} segundos...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }

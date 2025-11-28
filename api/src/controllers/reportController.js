@@ -8,6 +8,7 @@ const getUnreturnedDVDs = async (req, res) => {
         r.rental_id,
         r.rental_date,
         EXTRACT(DAY FROM (NOW() - r.rental_date)) as days_rented,
+        f.film_id,
         f.title,
         f.rental_duration as expected_duration,
         c.customer_id,
@@ -62,19 +63,20 @@ const getMostRentedDVDs = async (req, res) => {
         f.title,
         f.rental_rate,
         f.release_year,
+        f.rating,
         c.name as category,
         COUNT(r.rental_id) as total_rentals,
         COUNT(CASE WHEN r.return_date IS NOT NULL THEN 1 END) as completed_rentals,
         COUNT(CASE WHEN r.return_date IS NULL THEN 1 END) as active_rentals,
-        COALESCE(SUM(p.amount), 0) as total_revenue
+        COALESCE(SUM(p.amount), 0) as total_revenue,
+        MAX(r.rental_date) as last_rental_date
       FROM film f
-      LEFT JOIN inventory i ON f.film_id = i.film_id
-      LEFT JOIN rental r ON i.inventory_id = r.inventory_id
+      INNER JOIN inventory i ON f.film_id = i.film_id
+      INNER JOIN rental r ON i.inventory_id = r.inventory_id
       LEFT JOIN payment p ON r.rental_id = p.rental_id
       LEFT JOIN film_category fc ON f.film_id = fc.film_id
       LEFT JOIN category c ON fc.category_id = c.category_id
-      GROUP BY f.film_id, f.title, f.rental_rate, f.release_year, c.name
-      HAVING COUNT(r.rental_id) > 0
+      GROUP BY f.film_id, f.title, f.rental_rate, f.release_year, f.rating, c.name
       ORDER BY total_rentals DESC
       LIMIT $1`,
       [limit]
@@ -82,6 +84,7 @@ const getMostRentedDVDs = async (req, res) => {
 
     res.json({
       success: true,
+      generated_at: new Date().toISOString(),
       count: result.rows.length,
       data: result.rows
     });
@@ -102,16 +105,22 @@ const getStaffRevenue = async (req, res) => {
     const { staff_id } = req.params;
     const { start_date, end_date } = req.query;
 
+    console.log('📊 Calculando ganancias del staff:', { staff_id, start_date, end_date });
+
     let query = `
       SELECT 
         s.staff_id,
+        s.first_name,
+        s.last_name,
         s.first_name || ' ' || s.last_name as staff_name,
         s.email,
         st.store_id,
-        COUNT(DISTINCT r.rental_id) as total_rentals,
-        COUNT(DISTINCT p.payment_id) as total_payments,
+        COUNT(DISTINCT r.rental_id) FILTER (WHERE r.rental_id IS NOT NULL) as total_rentals,
+        COUNT(DISTINCT p.payment_id) FILTER (WHERE p.payment_id IS NOT NULL) as total_payments,
         COALESCE(SUM(p.amount), 0) as total_revenue,
-        COALESCE(AVG(p.amount), 0) as average_payment
+        COALESCE(AVG(p.amount), 0) as average_payment,
+        MIN(p.payment_date) as first_payment_date,
+        MAX(p.payment_date) as last_payment_date
       FROM staff s
       JOIN store st ON s.store_id = st.store_id
       LEFT JOIN rental r ON s.staff_id = r.staff_id
@@ -185,7 +194,7 @@ const getStaffRevenue = async (req, res) => {
     res.json({
       success: true,
       count: result.rows.length,
-      total_revenue_all_staff: result.rows.reduce((sum, row) => sum + parseFloat(row.total_revenue), 0),
+      total_revenue_all_staff: result.rows.reduce((sum, row) => sum + parseFloat(row.total_revenue || 0), 0),
       data: result.rows
     });
 

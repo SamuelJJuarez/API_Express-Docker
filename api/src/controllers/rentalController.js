@@ -66,6 +66,8 @@ const createRental = async (req, res) => {
       });
     }
 
+    const filmInfo = inventoryCheck.rows[0];
+
     // Verificar si el DVD ya está rentado (no devuelto)
     const rentalCheck = await client.query(
       'SELECT rental_id FROM rental WHERE inventory_id = $1 AND return_date IS NULL',
@@ -82,7 +84,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el cliente existe
     const customerCheck = await client.query(
-      'SELECT customer_id, first_name, last_name FROM customer WHERE customer_id = $1',
+      'SELECT customer_id, first_name, last_name, email FROM customer WHERE customer_id = $1',
       [customer_id]
     );
 
@@ -96,7 +98,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el staff existe
     const staffCheck = await client.query(
-      'SELECT staff_id, first_name, last_name FROM staff WHERE staff_id = $1',
+      'SELECT staff_id, first_name, last_name, email FROM staff WHERE staff_id = $1',
       [staff_id]
     );
 
@@ -108,16 +110,16 @@ const createRental = async (req, res) => {
       });
     }
 
-    // Crear la renta
+    // Crear la renta con fecha esperada de devolución
     const rentalResult = await client.query(
       `INSERT INTO rental (rental_date, inventory_id, customer_id, staff_id, last_update)
        VALUES (NOW(), $1, $2, $3, NOW())
-       RETURNING rental_id, rental_date`,
-      [selectedInventoryId, customer_id, staff_id]
+       RETURNING rental_id, rental_date, 
+                 (rental_date + INTERVAL '1 day' * $4) as expected_return_date`,
+      [selectedInventoryId, customer_id, staff_id, filmInfo.rental_duration]
     );
 
     const rental = rentalResult.rows[0];
-    const filmInfo = inventoryCheck.rows[0];
     const customerInfo = customerCheck.rows[0];
     const staffInfo = staffCheck.rows[0];
 
@@ -129,18 +131,21 @@ const createRental = async (req, res) => {
       data: {
         rental_id: rental.rental_id,
         rental_date: rental.rental_date,
+        expected_return_date: rental.expected_return_date,
         film_id: filmInfo.film_id,
         film_title: filmInfo.title,
         rental_rate: filmInfo.rental_rate,
-        rental_duration: filmInfo.rental_duration,
+        rental_duration_days: filmInfo.rental_duration,
         inventory_id: selectedInventoryId,
         customer: {
           customer_id: customerInfo.customer_id,
-          name: `${customerInfo.first_name} ${customerInfo.last_name}`
+          name: `${customerInfo.first_name} ${customerInfo.last_name}`,
+          email: customerInfo.email
         },
         staff: {
           staff_id: staffInfo.staff_id,
-          name: `${staffInfo.first_name} ${staffInfo.last_name}`
+          name: `${staffInfo.first_name} ${staffInfo.last_name}`,
+          email: staffInfo.email
         }
       }
     });
@@ -267,12 +272,25 @@ const cancelRental = async (req, res) => {
     
     await client.query('BEGIN');
 
-    // Verificar que la renta existe
+    // Verificar que la renta existe y obtener toda la información
     const rentalCheck = await client.query(
-      `SELECT r.rental_id, r.return_date, f.title
+      `SELECT 
+        r.rental_id, 
+        r.rental_date,
+        r.return_date,
+        f.film_id,
+        f.title,
+        c.customer_id,
+        c.first_name || ' ' || c.last_name as customer_name,
+        c.email as customer_email,
+        s.staff_id,
+        s.first_name || ' ' || s.last_name as staff_name,
+        s.email as staff_email
        FROM rental r
        JOIN inventory i ON r.inventory_id = i.inventory_id
        JOIN film f ON i.film_id = f.film_id
+       JOIN customer c ON r.customer_id = c.customer_id
+       JOIN staff s ON r.staff_id = s.staff_id
        WHERE r.rental_id = $1`,
       [rental_id]
     );
@@ -308,7 +326,21 @@ const cancelRental = async (req, res) => {
       message: 'Renta cancelada exitosamente',
       data: {
         rental_id: parseInt(rental_id),
-        film_title: rental.title
+        rental_date: rental.rental_date,
+        film: {
+          film_id: rental.film_id,
+          title: rental.title
+        },
+        customer: {
+          customer_id: rental.customer_id,
+          name: rental.customer_name,
+          email: rental.customer_email
+        },
+        staff: {
+          staff_id: rental.staff_id,
+          name: rental.staff_name,
+          email: rental.staff_email
+        }
       }
     });
 
@@ -336,6 +368,7 @@ const getCustomerRentals = async (req, res) => {
         r.rental_id,
         r.rental_date,
         r.return_date,
+        f.film_id,
         f.title,
         f.rental_rate,
         c.name as category,
