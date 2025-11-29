@@ -7,14 +7,18 @@ const getUnreturnedDVDs = async (req, res) => {
       `SELECT 
         r.rental_id,
         r.rental_date,
+        (r.rental_date + INTERVAL '1 day' * f.rental_duration) as expected_return_date,
         EXTRACT(DAY FROM (NOW() - r.rental_date)) as days_rented,
         f.film_id,
         f.title,
+        f.rental_rate,
         f.rental_duration as expected_duration,
         c.customer_id,
         c.first_name || ' ' || c.last_name as customer_name,
         c.email,
+        r.staff_id,
         s.first_name || ' ' || s.last_name as staff_name,
+        s.email as staff_email,
         CASE 
           WHEN EXTRACT(DAY FROM (NOW() - r.rental_date)) > f.rental_duration 
           THEN 'Atrasado'
@@ -68,7 +72,7 @@ const getMostRentedDVDs = async (req, res) => {
         COUNT(r.rental_id) as total_rentals,
         COUNT(CASE WHEN r.return_date IS NOT NULL THEN 1 END) as completed_rentals,
         COUNT(CASE WHEN r.return_date IS NULL THEN 1 END) as active_rentals,
-        COALESCE(SUM(p.amount), 0) as total_revenue,
+        COALESCE(SUM(p.amount), 0)::numeric(10,2) as total_revenue,
         MAX(r.rental_date) as last_rental_date
       FROM film f
       INNER JOIN inventory i ON f.film_id = i.film_id
@@ -77,15 +81,15 @@ const getMostRentedDVDs = async (req, res) => {
       LEFT JOIN film_category fc ON f.film_id = fc.film_id
       LEFT JOIN category c ON fc.category_id = c.category_id
       GROUP BY f.film_id, f.title, f.rental_rate, f.release_year, f.rating, c.name
-      ORDER BY total_rentals DESC
+      ORDER BY total_rentals DESC, total_revenue DESC
       LIMIT $1`,
       [limit]
     );
 
     res.json({
       success: true,
-      generated_at: new Date().toISOString(),
       count: result.rows.length,
+      generated_at: new Date().toISOString(),
       data: result.rows
     });
 
@@ -105,8 +109,6 @@ const getStaffRevenue = async (req, res) => {
     const { staff_id } = req.params;
     const { start_date, end_date } = req.query;
 
-    console.log('📊 Calculando ganancias del staff:', { staff_id, start_date, end_date });
-
     let query = `
       SELECT 
         s.staff_id,
@@ -114,15 +116,14 @@ const getStaffRevenue = async (req, res) => {
         s.last_name,
         s.first_name || ' ' || s.last_name as staff_name,
         s.email,
-        st.store_id,
+        s.store_id,
         COUNT(DISTINCT r.rental_id) FILTER (WHERE r.rental_id IS NOT NULL) as total_rentals,
         COUNT(DISTINCT p.payment_id) FILTER (WHERE p.payment_id IS NOT NULL) as total_payments,
-        COALESCE(SUM(p.amount), 0) as total_revenue,
-        COALESCE(AVG(p.amount), 0) as average_payment,
+        COALESCE(SUM(p.amount), 0)::numeric(10,2) as total_revenue,
+        COALESCE(AVG(p.amount), 0)::numeric(10,2) as average_payment,
         MIN(p.payment_date) as first_payment_date,
         MAX(p.payment_date) as last_payment_date
       FROM staff s
-      JOIN store st ON s.store_id = st.store_id
       LEFT JOIN rental r ON s.staff_id = r.staff_id
       LEFT JOIN payment p ON r.rental_id = p.rental_id
     `;
@@ -136,12 +137,12 @@ const getStaffRevenue = async (req, res) => {
     }
 
     if (start_date) {
-      conditions.push(`p.payment_date >= $${params.length + 1}`);
+      conditions.push(`(p.payment_date >= $${params.length + 1} OR p.payment_date IS NULL)`);
       params.push(start_date);
     }
 
     if (end_date) {
-      conditions.push(`p.payment_date <= $${params.length + 1}`);
+      conditions.push(`(p.payment_date <= $${params.length + 1} OR p.payment_date IS NULL)`);
       params.push(end_date);
     }
 
@@ -149,8 +150,11 @@ const getStaffRevenue = async (req, res) => {
       query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    query += ` GROUP BY s.staff_id, s.first_name, s.last_name, s.email, st.store_id
+    query += ` GROUP BY s.staff_id, s.first_name, s.last_name, s.email, s.store_id
                ORDER BY total_revenue DESC`;
+
+    console.log('Query staff revenue:', query); // Para debug
+    console.log('Params:', params); // Para debug
 
     const result = await pool.query(query, params);
 
@@ -162,39 +166,54 @@ const getStaffRevenue = async (req, res) => {
     }
 
     // Si es un staff específico, agregar detalles adicionales
-    if (staff_id) {
-      const detailQuery = `
+    if (staff_id && result.rows.length > 0) {
+      let detailQuery = `
         SELECT 
           DATE(p.payment_date) as payment_date,
           COUNT(p.payment_id) as payments_count,
-          SUM(p.amount) as daily_revenue
+          SUM(p.amount)::numeric(10,2) as daily_revenue
         FROM payment p
         JOIN rental r ON p.rental_id = r.rental_id
         WHERE r.staff_id = $1
-        ${start_date ? `AND p.payment_date >= $2` : ''}
-        ${end_date ? `AND p.payment_date <= $${start_date ? '3' : '2'}` : ''}
+      `;
+
+      const detailParams = [staff_id];
+      
+      if (start_date) {
+        detailQuery += ` AND p.payment_date >= $${detailParams.length + 1}`;
+        detailParams.push(start_date);
+      }
+      
+      if (end_date) {
+        detailQuery += ` AND p.payment_date <= $${detailParams.length + 1}`;
+        detailParams.push(end_date);
+      }
+
+      detailQuery += `
         GROUP BY DATE(p.payment_date)
         ORDER BY payment_date DESC
         LIMIT 30
       `;
-
-      const detailParams = [staff_id];
-      if (start_date) detailParams.push(start_date);
-      if (end_date) detailParams.push(end_date);
 
       const detailResult = await pool.query(detailQuery, detailParams);
 
       return res.json({
         success: true,
         staff_info: result.rows[0],
-        daily_breakdown: detailResult.rows
+        daily_breakdown: detailResult.rows,
+        period: {
+          start_date: start_date || 'all time',
+          end_date: end_date || 'now'
+        }
       });
     }
+
+    const totalRevenue = result.rows.reduce((sum, row) => sum + parseFloat(row.total_revenue || 0), 0);
 
     res.json({
       success: true,
       count: result.rows.length,
-      total_revenue_all_staff: result.rows.reduce((sum, row) => sum + parseFloat(row.total_revenue || 0), 0),
+      total_revenue_all_staff: totalRevenue.toFixed(2),
       data: result.rows
     });
 
@@ -203,7 +222,8 @@ const getStaffRevenue = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error al calcular ganancias del staff',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
