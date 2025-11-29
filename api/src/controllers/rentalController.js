@@ -66,8 +66,6 @@ const createRental = async (req, res) => {
       });
     }
 
-    const filmInfo = inventoryCheck.rows[0];
-
     // Verificar si el DVD ya está rentado (no devuelto)
     const rentalCheck = await client.query(
       'SELECT rental_id FROM rental WHERE inventory_id = $1 AND return_date IS NULL',
@@ -84,7 +82,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el cliente existe
     const customerCheck = await client.query(
-      'SELECT customer_id, first_name, last_name, email FROM customer WHERE customer_id = $1',
+      'SELECT customer_id, first_name, last_name FROM customer WHERE customer_id = $1',
       [customer_id]
     );
 
@@ -98,7 +96,7 @@ const createRental = async (req, res) => {
 
     // Verificar que el staff existe
     const staffCheck = await client.query(
-      'SELECT staff_id, first_name, last_name, email FROM staff WHERE staff_id = $1',
+      'SELECT staff_id, first_name, last_name FROM staff WHERE staff_id = $1',
       [staff_id]
     );
 
@@ -110,7 +108,9 @@ const createRental = async (req, res) => {
       });
     }
 
-    // Crear la renta con fecha esperada de devolución
+    const filmInfo = inventoryCheck.rows[0];
+
+    // ✅ CORRECCIÓN 1: Crear la renta CON fecha esperada de devolución
     const rentalResult = await client.query(
       `INSERT INTO rental (rental_date, inventory_id, customer_id, staff_id, last_update)
        VALUES (NOW(), $1, $2, $3, NOW())
@@ -125,27 +125,27 @@ const createRental = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // ✅ CORRECCIÓN 2: Incluir expected_return_date en la respuesta
     res.status(201).json({
       success: true,
       message: 'Renta creada exitosamente',
       data: {
         rental_id: rental.rental_id,
         rental_date: rental.rental_date,
-        expected_return_date: rental.expected_return_date,
+        expected_return_date: rental.expected_return_date, // ✅ NUEVO
+        rental_duration_days: filmInfo.rental_duration,     // ✅ NUEVO
         film_id: filmInfo.film_id,
         film_title: filmInfo.title,
         rental_rate: filmInfo.rental_rate,
-        rental_duration_days: filmInfo.rental_duration,
+        rental_duration: filmInfo.rental_duration,
         inventory_id: selectedInventoryId,
         customer: {
           customer_id: customerInfo.customer_id,
-          name: `${customerInfo.first_name} ${customerInfo.last_name}`,
-          email: customerInfo.email
+          name: `${customerInfo.first_name} ${customerInfo.last_name}`
         },
         staff: {
           staff_id: staffInfo.staff_id,
-          name: `${staffInfo.first_name} ${staffInfo.last_name}`,
-          email: staffInfo.email
+          name: `${staffInfo.first_name} ${staffInfo.last_name}`
         }
       }
     });
@@ -163,7 +163,7 @@ const createRental = async (req, res) => {
   }
 };
 
-// Realizar devolución
+// Realizar devolución (SIN CAMBIOS - Ya funciona correctamente)
 const returnRental = async (req, res) => {
   const client = await pool.connect();
   
@@ -263,7 +263,7 @@ const returnRental = async (req, res) => {
   }
 };
 
-// Cancelar renta (solo si no ha sido devuelta)
+// ✅ CORRECCIÓN 3: Cancelar renta - Devolver información completa + monto
 const cancelRental = async (req, res) => {
   const client = await pool.connect();
   
@@ -272,18 +272,21 @@ const cancelRental = async (req, res) => {
     
     await client.query('BEGIN');
 
-    // Verificar que la renta existe y obtener toda la información
+    // ✅ QUERY MEJORADA: Incluir información de staff, customer, film Y rental_rate
     const rentalCheck = await client.query(
       `SELECT 
         r.rental_id, 
         r.rental_date,
-        r.return_date,
+        r.return_date, 
         f.film_id,
-        f.title,
-        c.customer_id,
+        f.title as film_title,
+        f.rental_rate,
+        f.rental_duration,
+        EXTRACT(DAY FROM (NOW() - r.rental_date)) as days_since_rental,
+        r.customer_id,
         c.first_name || ' ' || c.last_name as customer_name,
         c.email as customer_email,
-        s.staff_id,
+        r.staff_id,
         s.first_name || ' ' || s.last_name as staff_name,
         s.email as staff_email
        FROM rental r
@@ -313,6 +316,10 @@ const cancelRental = async (req, res) => {
       });
     }
 
+    // ✅ CALCULAR MONTO ESTIMADO (lo que habría costado hasta hoy)
+    const daysRented = Math.ceil(parseFloat(rental.days_since_rental));
+    const estimatedAmount = (parseFloat(rental.rental_rate) * daysRented).toFixed(2);
+
     // Eliminar la renta
     await client.query(
       'DELETE FROM rental WHERE rental_id = $1',
@@ -321,15 +328,21 @@ const cancelRental = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // ✅ RESPUESTA MEJORADA: Incluir toda la información + monto estimado
     res.json({
       success: true,
       message: 'Renta cancelada exitosamente',
       data: {
         rental_id: parseInt(rental_id),
         rental_date: rental.rental_date,
+        days_rented: daysRented,
+        rental_rate: parseFloat(rental.rental_rate),
+        estimated_amount: parseFloat(estimatedAmount),
         film: {
           film_id: rental.film_id,
-          title: rental.title
+          title: rental.film_title,
+          rental_rate: parseFloat(rental.rental_rate),
+          rental_duration: rental.rental_duration
         },
         customer: {
           customer_id: rental.customer_id,
@@ -357,7 +370,7 @@ const cancelRental = async (req, res) => {
   }
 };
 
-// Obtener todas las rentas de un cliente
+// Obtener todas las rentas de un cliente (CORREGIDO - Agregar info de staff)
 const getCustomerRentals = async (req, res) => {
   try {
     const { customer_id } = req.params;
@@ -371,7 +384,11 @@ const getCustomerRentals = async (req, res) => {
         f.film_id,
         f.title,
         f.rental_rate,
+        f.rental_duration,
+        (r.rental_date + INTERVAL '1 day' * f.rental_duration) as expected_return_date,
         c.name as category,
+        r.staff_id,
+        s.first_name || ' ' || s.last_name as staff_name,
         CASE 
           WHEN r.return_date IS NULL THEN 'Activa'
           ELSE 'Devuelta'
@@ -384,6 +401,7 @@ const getCustomerRentals = async (req, res) => {
       FROM rental r
       JOIN inventory i ON r.inventory_id = i.inventory_id
       JOIN film f ON i.film_id = f.film_id
+      JOIN staff s ON r.staff_id = s.staff_id
       LEFT JOIN film_category fc ON f.film_id = fc.film_id
       LEFT JOIN category c ON fc.category_id = c.category_id
       WHERE r.customer_id = $1
@@ -431,7 +449,7 @@ const getCustomerRentals = async (req, res) => {
   }
 };
 
-// Obtener todas las rentas
+// Obtener todas las rentas (SIN CAMBIOS)
 const getAllRentals = async (req, res) => {
   try {
     const { 
