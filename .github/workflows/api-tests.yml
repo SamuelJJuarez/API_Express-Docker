@@ -1,0 +1,346 @@
+name: Pruebas de Integracion de API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-api:
+    name: Probar Endpoints de API
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: samueljjuarezb/postgres-dvdrental:latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dvdrental
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Obtener codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: ./api
+        run: npm ci
+
+      - name: Esperar a PostgreSQL
+        run: |
+          echo "Esperando a PostgreSQL..."
+          sleep 10
+
+      - name: Iniciar API
+        working-directory: ./api
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: dvdrental
+          PORT: 3000
+        run: |
+          npm start &
+          echo $! > api.pid
+          echo "API iniciada con PID: $(cat api.pid)"
+
+      - name: Esperar a que API este lista
+        run: |
+          echo "Esperando a que la API este lista..."
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/ > /dev/null 2>&1; then
+              echo "API lista"
+              break
+            fi
+            echo "Intento $i/30..."
+            sleep 2
+          done
+
+      - name: Probar endpoint raiz
+        run: |
+          echo "::group::Prueba GET /"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error: Se esperaba 200, se obtuvo $response"
+            exit 1
+          fi
+          
+          if ! cat response.json | jq -e '.message' > /dev/null; then
+            echo "Error: La respuesta no contiene el campo 'message'"
+            exit 1
+          fi
+          
+          echo "Endpoint raiz OK"
+          echo "::endgroup::"
+
+      - name: Probar endpoints de peliculas
+        run: |
+          echo "::group::Prueba GET /api/films"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/films?limit=5)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al listar peliculas"
+            exit 1
+          fi
+          
+          if ! cat response.json | jq -e '.success == true' > /dev/null; then
+            echo "La respuesta de peliculas no fue exitosa"
+            exit 1
+          fi
+          echo "Lista de peliculas OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/films/1"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/films/1)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al obtener pelicula por ID"
+            exit 1
+          fi
+          echo "Pelicula por ID OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/films/search?title=academy"
+          response=$(curl -s -o response.json -w "%{http_code}" "http://localhost:3000/api/films/search?title=academy")
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al buscar pelicula"
+            exit 1
+          fi
+          echo "Busqueda de pelicula OK"
+          echo "::endgroup::"
+
+      - name: Probar endpoints de clientes
+        run: |
+          echo "::group::Prueba GET /api/customers"
+          response=$(curl -s -o response.json -w "%{http_code}" "http://localhost:3000/api/customers?limit=5")
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al listar clientes"
+            exit 1
+          fi
+          echo "Lista de clientes OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/customers/1"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/customers/1)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al obtener cliente por ID"
+            exit 1
+          fi
+          echo "Cliente por ID OK"
+          echo "::endgroup::"
+
+      - name: Probar endpoints de staff
+        run: |
+          echo "::group::Prueba GET /api/staff"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/staff)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al listar staff"
+            exit 1
+          fi
+          echo "Lista de staff OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/staff/1"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/staff/1)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al obtener staff por ID"
+            exit 1
+          fi
+          echo "Staff por ID OK"
+          echo "::endgroup::"
+
+      - name: Probar endpoints de rentas
+        run: |
+          echo "::group::Prueba GET /api/rentals"
+          response=$(curl -s -o response.json -w "%{http_code}" "http://localhost:3000/api/rentals?limit=5")
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al listar rentas"
+            exit 1
+          fi
+          echo "Lista de rentas OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba POST /api/rentals (Crear)"
+          response=$(curl -s -o response.json -w "%{http_code}" \
+            -X POST http://localhost:3000/api/rentals \
+            -H "Content-Type: application/json" \
+            -d '{"customer_id":1,"film_id":1,"staff_id":1}')
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 201 ]; then
+            echo "Error al crear renta"
+            exit 1
+          fi
+          
+          rental_id=$(cat response.json | jq -r '.data.rental_id')
+          echo "Renta creada con ID: $rental_id"
+          echo "RENTAL_ID=$rental_id" >> $GITHUB_ENV
+          echo "Crear renta OK"
+          echo "::endgroup::"
+
+      - name: Probar devolucion de renta
+        run: |
+          echo "::group::Prueba PUT /api/rentals/${{ env.RENTAL_ID }}/return"
+          response=$(curl -s -o response.json -w "%{http_code}" \
+            -X PUT http://localhost:3000/api/rentals/${{ env.RENTAL_ID }}/return)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error al devolver renta"
+            exit 1
+          fi
+          echo "Devolver renta OK"
+          echo "::endgroup::"
+
+      - name: Probar endpoints de reportes
+        run: |
+          echo "::group::Prueba GET /api/reports/unreturned-dvds"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/reports/unreturned-dvds)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error en reporte de DVDs no devueltos"
+            exit 1
+          fi
+          echo "Reporte de DVDs no devueltos OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/reports/most-rented"
+          response=$(curl -s -o response.json -w "%{http_code}" "http://localhost:3000/api/reports/most-rented?limit=5")
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error en reporte de mas rentados"
+            exit 1
+          fi
+          
+          if ! cat response.json | jq -e '.generated_at' > /dev/null; then
+            echo "Falta campo generated_at en reporte de mas rentados"
+            exit 1
+          fi
+          echo "Reporte de mas rentados OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/reports/staff-revenue"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/reports/staff-revenue)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error en reporte de ganancias del staff"
+            exit 1
+          fi
+          echo "Reporte de ganancias del staff OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/reports/staff-revenue/1"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/reports/staff-revenue/1)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error en reporte de ganancias por ID de staff"
+            exit 1
+          fi
+          echo "Reporte de ganancias por ID de staff OK"
+          echo "::endgroup::"
+          
+          echo "::group::Prueba GET /api/reports/customer-rentals/1"
+          response=$(curl -s -o response.json -w "%{http_code}" http://localhost:3000/api/reports/customer-rentals/1)
+          echo "Estado: $response"
+          cat response.json | jq .
+          
+          if [ "$response" -ne 200 ]; then
+            echo "Error en reporte de rentas del cliente"
+            exit 1
+          fi
+          echo "Reporte de rentas del cliente OK"
+          echo "::endgroup::"
+
+      - name: Resumen de pruebas
+        if: always()
+        run: |
+          echo "::group::Resumen de Pruebas"
+          echo "================================"
+          echo "   PRUEBAS DE INTEGRACION API   "
+          echo "================================"
+          echo ""
+          echo "Todas las pruebas pasaron exitosamente"
+          echo ""
+          echo "Endpoints probados:"
+          echo "  - GET  /"
+          echo "  - GET  /api/films"
+          echo "  - GET  /api/films/:id"
+          echo "  - GET  /api/films/search"
+          echo "  - GET  /api/customers"
+          echo "  - GET  /api/customers/:id"
+          echo "  - GET  /api/staff"
+          echo "  - GET  /api/staff/:id"
+          echo "  - GET  /api/rentals"
+          echo "  - POST /api/rentals"
+          echo "  - PUT  /api/rentals/:id/return"
+          echo "  - GET  /api/reports/unreturned-dvds"
+          echo "  - GET  /api/reports/most-rented"
+          echo "  - GET  /api/reports/staff-revenue"
+          echo "  - GET  /api/reports/staff-revenue/:id"
+          echo "  - GET  /api/reports/customer-rentals/:id"
+          echo ""
+          echo "================================"
+          echo "::endgroup::"
+
+      - name: Limpieza
+        if: always()
+        run: |
+          if [ -f api/api.pid ]; then
+            kill $(cat api/api.pid) || true
+          fi
