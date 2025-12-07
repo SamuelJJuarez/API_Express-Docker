@@ -1,4 +1,4 @@
-# 🎬 DVD Rental API
+# DVD Rental API
 **Hecho por Samuel Juárez, Leonardo Rosas y Jesús González**
 
 API REST para gestión de rentas de DVDs con PostgreSQL.
@@ -27,31 +27,23 @@ docker run -d --name dvdrental-api --network dvdrental-network -e DB_HOST=dvdren
 
 ---
 
-## 📦 Imágenes Docker
+## Imágenes Docker
 
 ### API REST
 ```bash
 docker pull samueljjuarezb/dvdapi-express-sjr:latest
 ```
-- **Tamaño:** ~400MB
-- **Base:** Node.js 18
-- **Puerto:** 3000
 
 ### PostgreSQL + DVD Rental
 ```bash
 docker pull samueljjuarezb/postgres-dvdrental:latest
 ```
-- **Tamaño:** ~200MB
-- **Base:** PostgreSQL 15 Alpine
-- **Puerto:** 5432
 
----
-
-## 📚 API Endpoints
+## API Endpoints
 
 **Base URL:** `http://localhost:3000`
 
-### 🎬 Películas
+### Películas
 ```
 GET    /api/films                              # Listar todas
 GET    /api/films/:id                          # Por ID
@@ -59,19 +51,19 @@ GET    /api/films/search?title=palabra         # Buscar
 GET    /api/films/category/:category           # Por categoría
 ```
 
-### 👥 Clientes
+### Clientes
 ```
 GET    /api/customers                          # Listar todos
 GET    /api/customers/:id                      # Por ID
 ```
 
-### 👔 Staff
+### Staff
 ```
 GET    /api/staff                              # Listar todos
 GET    /api/staff/:id                          # Por ID
 ```
 
-### 📀 Rentas
+### Rentas
 ```
 GET    /api/rentals                            # Listar todas
 POST   /api/rentals                            # Crear (requiere: customer_id, film_id, staff_id)
@@ -80,7 +72,7 @@ DELETE /api/rentals/:id                        # Cancelar
 GET    /api/rentals/customer/:customer_id      # Por cliente
 ```
 
-### 📊 Reportes
+### Reportes
 ```
 GET    /api/reports/unreturned-dvds            # DVDs no devueltos
 GET    /api/reports/most-rented?limit=10       # Más rentados
@@ -91,7 +83,7 @@ GET    /api/reports/customer-rentals/:id       # Historial de cliente
 
 ---
 
-## 🔧 Variables de Entorno
+## Variables de Entorno
 
 ### API
 | Variable | Default |
@@ -121,7 +113,6 @@ docker-compose down
 
 # Eliminar todo (incluyendo datos)
 docker-compose down -v
-```
 
 ---
 
